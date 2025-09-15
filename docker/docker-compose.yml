@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  zoom-service:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: zoom-platform-microservice
+    container_name: zoom-platform-service
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../:/app
+      - /app/venv/  # Don't mount over the virtual environment
+    env_file:
+      - ../.env
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/zoom_service
+      - ENVIRONMENT=development
+      - LOG_LEVEL=info
+    depends_on:
+      - db
+    networks:
+      - zoom-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  db:
+    image: postgres:13-bullseye
+    container_name: zoom-platform-db
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=zoom_service
+    networks:
+      - zoom-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+networks:
+  zoom-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
