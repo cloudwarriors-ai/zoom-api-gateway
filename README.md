@@ -51,13 +51,6 @@ uvicorn app.main:app --reload
 
 ### Configuration
 
-Set the following environment variables or update the `.env` file:
-
-- `ZOOM_CLIENT_ID`: Your Zoom OAuth client ID
-- `ZOOM_CLIENT_SECRET`: Your Zoom OAuth client secret
-- `ZOOM_REDIRECT_URI`: OAuth redirect URI
-- `DATABASE_URL`: PostgreSQL connection string
-
 ## API Documentation
 
 When the service is running, visit:
