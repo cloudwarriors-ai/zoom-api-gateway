@@ -60,14 +60,12 @@ class TransformRequest(MCPRequest):
     """Request model for transforming extracted Zoom data"""
     request_type: str = "transform"
     extract_job_id: str = Field(..., description="ID of the extraction job containing data to transform")
-    target_format: str = Field(..., description="Target format for the transformed data")
-    mappings: Dict[str, str] = Field(
+    job_type_code: str = Field(..., description="Job type code for the transformation (e.g., 'rc_zoom_sites')")
+    source_platform: str = Field(..., description="Source platform for the data")
+    target_platform: str = Field(..., description="Target platform for the transformed data")
+    data: Union[Dict[str, Any], List[Dict[str, Any]]] = Field(
         ..., 
-        description="Field mappings from source to target schema"
-    )
-    filters: Optional[Dict[str, Any]] = Field(
-        None, 
-        description="Filters to apply during transformation"
+        description="Data to transform"
     )
     
     class Config:
@@ -76,15 +74,19 @@ class TransformRequest(MCPRequest):
                 "version": "1.0",
                 "request_type": "transform",
                 "extract_job_id": "123e4567-e89b-12d3-a456-426614174000",
-                "target_format": "ringcentral",
-                "mappings": {
-                    "id": "meeting_id",
-                    "topic": "title",
-                    "start_time": "start_date",
-                    "duration": "duration_minutes"
-                },
-                "filters": {
-                    "duration_min": 30
+                "job_type_code": "rc_zoom_sites",
+                "source_platform": "ringcentral",
+                "target_platform": "zoom",
+                "data": {
+                    "id": "123",
+                    "name": "Main Office",
+                    "businessAddress": {
+                        "street": "123 Main St",
+                        "city": "San Francisco",
+                        "state": "CA",
+                        "zip": "94105",
+                        "country": "US"
+                    }
                 }
             }
         }

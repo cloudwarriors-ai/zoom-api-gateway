@@ -11,14 +11,16 @@ class RingCentralSitesToZoomTransformer(BaseTransformer):
     format to the format required by Zoom's API.
     """
     
-    def __init__(self, config_id: Optional[str] = None):
+    def __init__(self, job_type_code: Optional[str] = None, config_id: Optional[str] = None):
         """
         Initialize the RingCentralSitesToZoomTransformer.
         
         Args:
+            job_type_code: The job type code for this transformation
             config_id: Optional identifier for a specific transformation configuration
         """
         super().__init__()
+        self.job_type_code = job_type_code
         if config_id:
             self.transformation_config = self.get_transformation_config(config_id)
         else:
@@ -48,95 +50,172 @@ class RingCentralSitesToZoomTransformer(BaseTransformer):
         """
         Transform RingCentral site data to Zoom location format.
         
+        This matches exactly what ZoomTransformerHelper.transform_sites_data() does:
+        - Preserves ALL original data
+        - Adds default_emergency_address transformation from businessAddress
+        
         Args:
             data: RingCentral site data dictionary
             
         Returns:
-            Dictionary in Zoom location format
+            Transformed site record with original data plus default_emergency_address
         """
-        if not self.validate_input(data):
-            self.logger.error(f"Invalid input data: {data}")
+        try:
+            # This matches the logic from ZoomTransformerHelper.transform_sites_data() exactly
+            transformed_record = data.copy()  # Preserve ALL original data
+            
+            # Add the emergency address transformation (the main transformation)
+            transformed_record['default_emergency_address'] = self.transform_emergency_address(
+                data.get('businessAddress', {})
+            )
+            
+            self.logger.info(f"Successfully transformed site: {data.get('id')}")
+            return transformed_record
+            
+        except Exception as e:
+            self.logger.error(f"Error transforming site data: {str(e)}")
             raise ValueError("Invalid input data for RingCentral site transformation")
-        
-        zoom_site = {}
-        
-        # Map fields using the configured mapping
-        field_mapping = self.transformation_config.get("field_mapping", {})
-        for rc_field, zoom_field in field_mapping.items():
-            # Handle nested fields with dot notation
-            if "." in rc_field:
-                parts = rc_field.split(".")
-                value = data
-                for part in parts:
-                    if isinstance(value, dict) and part in value:
-                        value = value[part]
-                    else:
-                        value = None
-                        break
-                zoom_site[zoom_field] = value if value is not None else ""
-            else:
-                zoom_site[zoom_field] = data.get(rc_field, "")
-        
-        # Map status using status mapping
-        status_mapping = self.transformation_config.get("status_mapping", {})
-        rc_status = data.get("status", "")
-        zoom_site["status"] = status_mapping.get(rc_status, "inactive")
-        
-        # Apply defaults for missing fields
-        defaults = self.transformation_config.get("defaults", {})
-        for field, default_value in defaults.items():
-            if field in field_mapping.values() and not zoom_site.get(field):
-                zoom_site[field] = default_value
-        
-        # Special handling for address formats
-        # RingCentral might have a secondary address line
-        if "address" in data and "street2" in data["address"] and data["address"]["street2"]:
-            zoom_site["address_line2"] = data["address"]["street2"]
-        
-        if not self.validate_output(zoom_site):
-            self.logger.error(f"Invalid output data: {zoom_site}")
-            raise ValueError("Transformation resulted in invalid Zoom site data")
-        
-        return zoom_site
     
-    def validate_input(self, data: Dict[str, Any]) -> bool:
+    
+    def transform_emergency_address(self, business_address: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Validate the input RingCentral site data.
+        Transform RingCentral businessAddress to Zoom default_emergency_address format.
         
         Args:
-            data: RingCentral site data to validate
+            business_address: RingCentral businessAddress object
             
         Returns:
-            True if data is valid, False otherwise
+            Transformed emergency address for Zoom
         """
-        # Ensure required fields are present
-        if not data.get("name"):
-            self.logger.error("Missing required field: name")
-            return False
-        
-        # Ensure address object exists
-        if "address" not in data or not isinstance(data["address"], dict):
-            self.logger.error("Missing or invalid address object")
-            return False
-        
-        return True
+        if not business_address:
+            return {}
+            
+        try:
+            # Get country and convert to ISO code
+            country_name = business_address.get('country', '')
+            country_iso = self.convert_country_to_iso(country_name) if country_name else ''
+            
+            transformed_address = {
+                'address_line1': business_address.get('street', ''),
+                'city': business_address.get('city', ''),
+                'state_code': business_address.get('state', ''),
+                'zip': business_address.get('zip', ''),
+                'country': country_iso
+            }
+            
+            self.logger.debug(f"Transformed emergency address: {transformed_address}")
+            return transformed_address
+            
+        except Exception as e:
+            self.logger.error(f"Error transforming emergency address: {str(e)}")
+            return {}
     
-    def validate_output(self, data: Dict[str, Any]) -> bool:
+    def _transform_regional_settings(self, regional_settings: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Validate the output Zoom location data.
+        Transform regional settings with timezone conversion.
         
         Args:
-            data: Zoom location data to validate
+            regional_settings: Regional settings object
             
         Returns:
-            True if data is valid, False otherwise
+            Transformed regional settings
         """
-        # Ensure required Zoom fields are present
-        required_fields = ["name", "address_line1", "city", "state", "country"]
+        if not regional_settings:
+            return {}
+            
+        try:
+            # Extract timezone and convert to IANA
+            timezone = regional_settings.get('timezone', {})
+            iana_timezone = self.transform_timezone_to_iana(timezone)
+            
+            return {
+                'timezone': iana_timezone
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error transforming regional settings: {str(e)}")
+            return {}
+    
+    def transform_timezone_to_iana(self, timezone_data: Dict[str, Any]) -> Optional[str]:
+        """
+        Transform timezone data to IANA format.
         
-        for field in required_fields:
-            if not data.get(field):
-                self.logger.error(f"Missing required Zoom field: {field}")
-                return False
+        Args:
+            timezone_data: Timezone object from source platform
+            
+        Returns:
+            IANA timezone string or None
+        """
+        if not timezone_data:
+            return None
+            
+        try:
+            # Handle RingCentral timezone format to IANA conversion
+            if isinstance(timezone_data, dict):
+                if 'id' in timezone_data:
+                    # Map RingCentral timezone IDs to IANA format
+                    rc_to_iana_map = {
+                        '58': 'America/New_York',
+                        '59': 'America/Chicago', 
+                        '60': 'America/Denver',
+                        '61': 'America/Los_Angeles',
+                        '62': 'America/Phoenix',
+                        '63': 'America/Anchorage',
+                        '64': 'Pacific/Honolulu'
+                    }
+                    return rc_to_iana_map.get(str(timezone_data['id']))
+                    
+                if 'name' in timezone_data:
+                    # Handle timezone name to IANA conversion
+                    name_to_iana_map = {
+                        'Eastern Time': 'America/New_York',
+                        'Central Time': 'America/Chicago',
+                        'Mountain Time': 'America/Denver', 
+                        'Pacific Time': 'America/Los_Angeles',
+                        'Alaska Time': 'America/Anchorage',
+                        'Hawaii Time': 'Pacific/Honolulu'
+                    }
+                    return name_to_iana_map.get(timezone_data['name'])
+            
+            elif isinstance(timezone_data, str):
+                # Handle direct string timezone values
+                return timezone_data if timezone_data.startswith('America/') or timezone_data.startswith('Pacific/') else None
+                
+            return None
+            
+        except Exception as e:
+            self.logger.error(f"Error converting timezone to IANA: {str(e)}")
+            return None
+    
+    def convert_country_to_iso(self, country_name: str) -> str:
+        """
+        Convert country name to ISO 3166-1 alpha-2 code.
         
-        return True
+        Args:
+            country_name: Country name to convert
+            
+        Returns:
+            ISO country code
+        """
+        # Country name to ISO code mapping
+        country_mapping = {
+            'United States': 'US',
+            'United States of America': 'US', 
+            'USA': 'US',
+            'US': 'US',
+            'Canada': 'CA',
+            'United Kingdom': 'GB',
+            'Great Britain': 'GB',
+            'UK': 'GB',
+            'Australia': 'AU',
+            'Germany': 'DE',
+            'France': 'FR',
+            'Japan': 'JP',
+            'China': 'CN',
+            'India': 'IN',
+            'Brazil': 'BR',
+            'Mexico': 'MX'
+        }
+        
+        return country_mapping.get(country_name, country_name)
+    

@@ -69,8 +69,8 @@ async def startup_event():
     """Initialize connections and resources on startup."""
     logger.info("Initializing service...")
     # Create database tables if they don't exist
-    # import app.models  # Import models to register them with SQLAlchemy
-    # app.models.Base.metadata.create_all(bind=engine)
+    import app.database.models  # Import models to register them with SQLAlchemy
+    app.database.models.Base.metadata.create_all(bind=engine)
     logger.info("Service initialized successfully")
 
 # Shutdown event
@@ -82,9 +82,13 @@ async def shutdown_event():
     logger.info("Service shutdown complete")
 
 # Import and include routers
-# from app.api.endpoints import mcp_router, transform_router
-# app.include_router(mcp_router, prefix="/api/mcp", tags=["MCP"])
-# app.include_router(transform_router, prefix="/api/transform", tags=["Transform"])
+from app.routers.mcp import router as mcp_router
+from app.routers.transform import router as transform_router
+app.include_router(mcp_router, prefix="/api/mcp", tags=["MCP"])
+app.include_router(transform_router, prefix="/api/transform", tags=["Transform"])
+
+# Also mount the MCP router at /mcp for backward compatibility
+app.include_router(mcp_router, prefix="/mcp", tags=["MCP-Legacy"])
 
 # If this file is run directly, start the application with Uvicorn
 if __name__ == "__main__":

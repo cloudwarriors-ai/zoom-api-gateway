@@ -363,7 +363,7 @@ class MCPService:
     
     def execute_transform(self, 
                         extract_job_id: str,
-                        entity_type: str,
+                        job_type_code: str,
                         source_platform: str,
                         target_platform: str,
                         data: Union[Dict[str, Any], List[Dict[str, Any]]],
@@ -373,7 +373,7 @@ class MCPService:
         
         Args:
             extract_job_id: The ID of the extraction job
-            entity_type: The type of entity to transform
+            job_type_code: The job type code for the transformation
             source_platform: The source platform
             target_platform: The target platform
             data: The data to transform
@@ -385,14 +385,14 @@ class MCPService:
         Raises:
             ValidationException: If the transformation fails
         """
-        self.logger.info(f"Executing transformation for {entity_type} from {source_platform} to {target_platform}")
+        self.logger.info(f"Executing transformation for job_type_code={job_type_code} from {source_platform} to {target_platform}")
         
         try:
             # Use the transformer service to transform the data
             source_record_count = len(data) if isinstance(data, list) else 1
             
             transformed_data = self.transformer_service.transform_data(
-                entity_type=entity_type,
+                job_type_code=job_type_code,
                 source_platform=source_platform,
                 target_platform=target_platform,
                 data=data

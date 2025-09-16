@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 # Create database engine
 try:
     engine = create_engine(
-        str(settings.SQLALCHEMY_DATABASE_URI),
+        str(settings.DATABASE_URL),
         pool_pre_ping=True,  # Test connections before using them
         pool_size=5,         # Maximum number of connections to keep open
         max_overflow=10,     # Maximum number of connections to create above pool_size

@@ -1,22 +1,47 @@
 version: '3.8'
 
 services:
-  api:
+  microservice:
     build: .
-    container_name: zoom-platform-api
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    container_name: zoom-microservice
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
-      - ./:/app
+      # Mount source code for live development (no rebuilds needed)
+      - ./app:/app/app
+      - ./scripts:/app/scripts
+      - ./tests:/app/tests
+      - ./logs:/app/logs
     ports:
-      - "8000:8000"
+      - "3555:8000"  # Port 3555 for integration with main ETL system
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/zoom_platform
-      - ZOOM_API_KEY=${ZOOM_API_KEY}
-      - ZOOM_API_SECRET=${ZOOM_API_SECRET}
-      - ENVIRONMENT=development
-      - LOG_LEVEL=info
+      # Database configuration
+      - DATABASE_URL=postgresql://zoom_user:zoom_password@microservice_db:5432/zoom_microservice
+      - DATABASE_HOST=microservice_db
+      - DATABASE_PORT=5432
+      - DATABASE_NAME=zoom_microservice
+      - DATABASE_USER=zoom_user
+      - DATABASE_PASSWORD=zoom_password
+      
+      # Application configuration
+      - ENV=development
+      - DEBUG=True
+      - LOG_LEVEL=INFO
+      
+      # Integration configuration with main ETL system
+      - MAIN_ETL_URL=http://backend:8030
+      - MAIN_ETL_API_KEY=${MAIN_ETL_API_KEY:-}
+      
+      # Zoom API configuration
+      - ZOOM_API_KEY=${ZOOM_API_KEY:-}
+      - ZOOM_API_SECRET=${ZOOM_API_SECRET:-}
+    
     depends_on:
-      - db
+      - microservice_db
+    
+    networks:
+      - microservice_network
+      - proxy  # Connect to the same network as the backend
+    
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -25,24 +50,44 @@ services:
       start_period: 10s
     restart: unless-stopped
 
-  db:
-    image: postgres:13-bullseye
-    container_name: zoom-platform-db
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
+  microservice_db:
+    image: postgres:15-alpine
+    container_name: zoom-microservice-db
     environment:
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_USER=postgres
-      - POSTGRES_DB=zoom_platform
+      - POSTGRES_DB=zoom_microservice
+      - POSTGRES_USER=zoom_user
+      - POSTGRES_PASSWORD=zoom_password
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8
+    
+    volumes:
+      # Persistent data storage
+      - microservice_db_data:/var/lib/postgresql/data
+      
+      # Custom initialization scripts
+      - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/init_db.sql
+    
     ports:
-      - "5432:5432"
+      - "5433:5432"  # Different port to avoid conflicts with main system
+    
+    networks:
+      - microservice_network
+    
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U zoom_user -d zoom_microservice"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
     restart: unless-stopped
 
+networks:
+  microservice_network:
+    driver: bridge
+  
+  # Connect to the same network as the backend
+  proxy:
+    external: true
+
 volumes:
-  postgres_data:
+  microservice_db_data:
+    driver: local

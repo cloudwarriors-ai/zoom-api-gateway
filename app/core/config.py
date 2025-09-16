@@ -1,4 +1,5 @@
-from pydantic import BaseSettings, PostgresDsn, validator, AnyHttpUrl
+from pydantic_settings import BaseSettings
+from pydantic import field_validator, AnyHttpUrl
 from typing import List, Optional, Dict, Any, Union
 import logging
 import os
@@ -25,20 +26,15 @@ class Settings(BaseSettings):
     DATABASE_PASSWORD: str = "postgres"
     DATABASE_NAME: str = "zoom_platform"
     
-    SQLALCHEMY_DATABASE_URI: Optional[PostgresDsn] = None
+    DATABASE_URL: Optional[str] = None
     
-    @validator("SQLALCHEMY_DATABASE_URI", pre=True)
-    def assemble_db_connection(cls, v: Optional[str], values: Dict[str, Any]) -> Any:
-        if isinstance(v, str):
+    @field_validator("DATABASE_URL", mode="before")
+    @classmethod
+    def assemble_db_connection(cls, v: Optional[str], info) -> str:
+        if v:
             return v
-        return PostgresDsn.build(
-            scheme="postgresql",
-            user=values.get("DATABASE_USER"),
-            password=values.get("DATABASE_PASSWORD"),
-            host=values.get("DATABASE_HOST"),
-            port=values.get("DATABASE_PORT"),
-            path=f"/{values.get('DATABASE_NAME') or ''}",
-        )
+        values = info.data
+        return f"postgresql://{values.get('DATABASE_USER')}:{values.get('DATABASE_PASSWORD')}@{values.get('DATABASE_HOST')}:{values.get('DATABASE_PORT')}/{values.get('DATABASE_NAME')}"
     
     # CORS settings
     CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8000"]
@@ -51,7 +47,7 @@ class Settings(BaseSettings):
     RATE_LIMIT_PER_SECOND: int = 10
     
     # Logging settings
-    LOG_LEVEL: int = logging.INFO
+    LOG_LEVEL: str = "INFO"
     LOG_FORMAT: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     
     # JWT settings

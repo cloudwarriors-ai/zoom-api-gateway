@@ -78,3 +78,8 @@ htmlcov/
 *.key
 credentials.json
 client_secret.json
+
+# Test output files
+*_output.json
+*_results.json
+test_*.json
