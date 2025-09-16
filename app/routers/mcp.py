@@ -82,14 +82,9 @@ async def transform_data(
     """
     logger.info(f"Received transform request: {request}")
     
-    # Simplified approach: import specific transformers directly to avoid discovery issues
-    logger.info("Importing specific transformers...")
-    from app.transformers.raw_to_zoom.ringcentral_to_zoom.sites_transformer import RingCentralSitesToZoomTransformer
-    from app.transformers.raw_to_zoom.ringcentral_to_zoom.users_transformer import RingCentralToZoomUsersTransformer
-    from app.transformers.raw_to_zoom.ringcentral_to_zoom.call_queues_transformer import RingCentralToZoomCallQueuesTransformer
-    from app.transformers.raw_to_zoom.ringcentral_to_zoom.auto_receptionists_transformer import RingCentralToZoomAutoReceptionistsTransformer
-    from app.transformers.raw_to_zoom.ringcentral_to_zoom.ivr_transformer import RingCentralToZoomIVRTransformer
-    logger.info("Successfully imported transformers")
+    # Import platform dispatcher factory
+    from app.dispatchers.platform_dispatcher_factory import PlatformDispatcherFactory
+    from app.core.exceptions import TransformationError
     
     try:
         # Handle raw MCP payload from main ETL system
@@ -107,39 +102,18 @@ async def transform_data(
         else:
             raise ValueError("Invalid MCP request format - missing method and params")
         
-        # Handle supported job types
-        if job_type_code == "rc_zoom_sites":
-            logger.info("Creating sites transformer instance...")
-            transformer = RingCentralSitesToZoomTransformer(job_type_code=job_type_code)
-            logger.info("Calling transform method...")
-            transformed_data = transformer.transform(raw_data)
-            logger.info(f"Transform completed, result: {transformed_data}")
-        elif job_type_code == "rc_zoom_users":
-            logger.info("Creating users transformer instance...")
-            transformer = RingCentralToZoomUsersTransformer()
-            logger.info("Calling transform method...")
-            transformed_data = transformer.transform(raw_data)
-            logger.info(f"Transform completed, result: {transformed_data}")
-        elif job_type_code == "rc_zoom_call_queues":
-            logger.info("Creating call queues transformer instance...")
-            transformer = RingCentralToZoomCallQueuesTransformer()
-            logger.info("Calling transform method...")
-            transformed_data = transformer.transform(raw_data)
-            logger.info(f"Transform completed, result: {transformed_data}")
-        elif job_type_code == "rc_zoom_ars":
-            logger.info("Creating auto receptionists transformer instance...")
-            transformer = RingCentralToZoomAutoReceptionistsTransformer()
-            logger.info("Calling transform method...")
-            transformed_data = transformer.transform(raw_data)
-            logger.info(f"Transform completed, result: {transformed_data}")
-        elif job_type_code == "rc_zoom_ivr":
-            logger.info("Creating IVR transformer instance...")
-            transformer = RingCentralToZoomIVRTransformer()
-            logger.info("Calling transform method...")
-            transformed_data = transformer.transform(raw_data)
-            logger.info(f"Transform completed, result: {transformed_data}")
-        else:
-            raise ValueError(f"Unsupported job_type_code: {job_type_code} (only rc_zoom_sites, rc_zoom_users, rc_zoom_call_queues, rc_zoom_ars, and rc_zoom_ivr supported)")
+        logger.info(f"Processing transformation: {source_platform} -> {target_platform}, job_type: {job_type_code}")
+        
+        # Use platform dispatcher factory to handle transformation
+        transformed_data = PlatformDispatcherFactory.transform_data(
+            source_platform=source_platform,
+            target_platform=target_platform,
+            job_type_code=job_type_code,
+            raw_data=raw_data,
+            job=None
+        )
+        
+        logger.info(f"Transform completed successfully for job_type: {job_type_code}")
         
         # Generate a unique request ID
         request_id = str(uuid.uuid4())
@@ -168,6 +142,12 @@ async def transform_data(
                 "source_platform": source_platform,
                 "target_platform": target_platform
             }
+        )
+    except TransformationError as e:
+        logger.error(f"Transformation error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Transformation error: {str(e)}"
         )
     except Exception as e:
         import traceback
@@ -256,6 +236,59 @@ async def get_status(
         updated_at=mcp_request.updated_at,
         error_message=mcp_request.error_message
     )
+
+
+@router.get("/platforms")
+async def get_supported_platforms():
+    """
+    Get all supported platform combinations for transformations.
+    
+    Returns:
+        Dictionary with supported source->target platform combinations
+        and available job types for each combination.
+    """
+    from app.dispatchers.platform_dispatcher_factory import PlatformDispatcherFactory
+    
+    try:
+        # Get supported platform combinations
+        supported_platforms = PlatformDispatcherFactory.get_supported_platforms()
+        
+        # Get detailed information for each combination
+        platform_details = {}
+        for source_platform, target_platforms in supported_platforms.items():
+            platform_details[source_platform] = {}
+            
+            for target_platform in target_platforms:
+                try:
+                    # Get dispatcher for this combination
+                    dispatcher = PlatformDispatcherFactory.get_dispatcher(source_platform, target_platform)
+                    
+                    # Get supported job types
+                    supported_job_types = dispatcher.get_supported_job_types()
+                    
+                    platform_details[source_platform][target_platform] = {
+                        "supported_job_types": supported_job_types,
+                        "dispatcher_class": dispatcher.__class__.__name__
+                    }
+                except Exception as e:
+                    platform_details[source_platform][target_platform] = {
+                        "error": f"Failed to get dispatcher info: {str(e)}"
+                    }
+        
+        return {
+            "supported_combinations": platform_details,
+            "summary": {
+                "total_source_platforms": len(supported_platforms),
+                "total_combinations": sum(len(targets) for targets in supported_platforms.values())
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting supported platforms: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error getting supported platforms: {str(e)}"
+        )
 
 
 # Data Migration Endpoints
