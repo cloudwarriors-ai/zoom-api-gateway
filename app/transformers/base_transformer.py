@@ -3,7 +3,7 @@ import logging
 from typing import Any, Dict, List, Optional
 from sqlalchemy.orm import Session
 from app.database.session import get_db
-from app.database.models import TransformerConfig
+from app.database.models import TransformerConfig, JobTypeConfig
 
 
 class BaseTransformer(ABC):
@@ -37,20 +37,36 @@ class BaseTransformer(ABC):
         
         try:
             db = next(get_db())
-            config = db.query(TransformationConfig).filter(
-                TransformationConfig.job_type_code == job_type_code
+            
+            # First, find the job_type_id from the JobTypeConfig table using the code
+            job_type = db.query(JobTypeConfig).filter(
+                JobTypeConfig.code == job_type_code
+            ).first()
+            
+            if not job_type:
+                self.logger.warning(f"No JobType found for code: {job_type_code}")
+                self.transformation_config = {}
+                return self.transformation_config
+            
+            # Now find the transformation config using the job_type_id
+            config = db.query(TransformerConfig).filter(
+                TransformerConfig.job_type_id == job_type.id
             ).first()
             
             if config:
-                self.transformation_config = {
-                    "field_mappings": config.field_mappings,
-                    "validation_rules": config.validation_rules,
-                    "processing_options": config.processing_options
-                }
-                self.logger.info(f"Found transformation config for {job_type_code}")
-                return self.transformation_config
+                # Parse YAML transformation config
+                import yaml
+                try:
+                    parsed_config = yaml.safe_load(config.transformation_config)
+                    self.transformation_config = parsed_config or {}
+                    self.logger.info(f"Found and parsed transformation config for {job_type_code} (job_type_id: {job_type.id})")
+                    return self.transformation_config
+                except yaml.YAMLError as ye:
+                    self.logger.error(f"Error parsing YAML config for {job_type_code}: {str(ye)}")
+                    self.transformation_config = {}
+                    return self.transformation_config
             else:
-                self.logger.warning(f"No transformation config found for {job_type_code}")
+                self.logger.warning(f"No transformation config found for {job_type_code} (job_type_id: {job_type.id})")
                 self.transformation_config = {}
                 return self.transformation_config
         except Exception as e:

@@ -89,3 +89,11 @@ class RateLimitException(CustomException):
         status_code: int = status.HTTP_429_TOO_MANY_REQUESTS,
     ):
         super().__init__(status_code=status_code, detail=detail)
+
+
+class TransformationError(Exception):
+    """Exception raised for data transformation errors."""
+    
+    def __init__(self, message: str):
+        self.message = message
+        super().__init__(self.message)
