@@ -30,12 +30,26 @@ class RingCentralToZoomDispatcher:
             from app.transformers.raw_to_zoom.ringcentral_to_zoom.ivr_transformer import RingCentralToZoomIVRTransformer
             
             # Map job type codes to transformer instances
+            # Support both new format (rc_zoom_*) and backend format (ringcentral_zoom_*, call_queue_members_optimized)
+            sites_transformer = RingCentralSitesToZoomTransformer(job_type_code="rc_zoom_sites")
+            users_transformer = RingCentralToZoomUsersTransformer()
+            call_queues_transformer = RingCentralToZoomCallQueuesTransformer()
+            ars_transformer = RingCentralToZoomAutoReceptionistsTransformer()
+            ivr_transformer = RingCentralToZoomIVRTransformer()
+            
             self._transformers = {
-                "rc_zoom_sites": RingCentralSitesToZoomTransformer(job_type_code="rc_zoom_sites"),
-                "rc_zoom_users": RingCentralToZoomUsersTransformer(),
-                "rc_zoom_call_queues": RingCentralToZoomCallQueuesTransformer(),
-                "rc_zoom_ars": RingCentralToZoomAutoReceptionistsTransformer(),
-                "rc_zoom_ivr": RingCentralToZoomIVRTransformer()
+                # New format (rc_zoom_*)
+                "rc_zoom_sites": sites_transformer,
+                "rc_zoom_users": users_transformer,
+                "rc_zoom_call_queues": call_queues_transformer,
+                "rc_zoom_ars": ars_transformer,
+                "rc_zoom_ivr": ivr_transformer,
+                
+                # Backend format aliases
+                "ringcentral_zoom_users": users_transformer,
+                "ringcentral_zoom_ars": ars_transformer,
+                "call_queue_members_optimized": call_queues_transformer,
+                "ringcentral_zoom_ivr": ivr_transformer
             }
             
             logger.info(f"Initialized RingCentral to Zoom dispatcher with {len(self._transformers)} transformers")
