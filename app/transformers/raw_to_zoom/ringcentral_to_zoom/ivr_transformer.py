@@ -120,17 +120,24 @@ class RingCentralToZoomIVRTransformer(BaseTransformer):
                 transformed['key'] = action.get('key')
             
             # 2. Determine target type from extension information  
-            target_type = 'user'  # Default fallback
             extension_id = None
+            extension_name = None
             
-            # Handle both RingCentral format (extension.id) and Zoom format (target.extension_id)
+            # Handle both RingCentral format (extension.id/name) and Zoom format (target.extension_id)
             if 'extension' in action and isinstance(action['extension'], dict):
                 extension_id = action['extension'].get('id')
+                extension_name = action['extension'].get('name')
             elif 'target' in action and isinstance(action['target'], dict):
                 extension_id = action['target'].get('extension_id')
-                
-            self.logger.info(f"IVR_DEBUG: job_group_id={job_group_id}, extension_id={extension_id}")
-            # For now, we'll use the default 'user' type since we don't have job group data
+                # Note: Zoom format might not have extension name
+            
+            # Detect the actual extension type using name patterns
+            if extension_name:
+                target_type = self.detect_extension_type(extension_name, str(extension_id) if extension_id else 'unknown')
+                self.logger.info(f"IVR_DEBUG: Detected extension '{extension_name}' ({extension_id}) as type: {target_type}")
+            else:
+                target_type = 'user'  # Default fallback
+                self.logger.info(f"IVR_DEBUG: Using default target_type 'user' (no extension name available, extension_id={extension_id})")
             
             # 3. Map action to Zoom action code
             if 'action' in action:
@@ -167,6 +174,39 @@ class RingCentralToZoomIVRTransformer(BaseTransformer):
             self.logger.info(f"INPUT_MAPPING: Mapped '{rc_input}' → '{mapped_key}'")
         return mapped_key
     
+    def detect_extension_type(self, extension_name: str, extension_id: str) -> str:
+        """
+        Detect the type of RingCentral extension based on name patterns and context.
+        
+        Args:
+            extension_name: The name of the extension
+            extension_id: The RingCentral extension ID
+            
+        Returns:
+            Extension type ('user', 'call_queue', 'auto_receptionist')
+        """
+        if not extension_name:
+            self.logger.warning(f"IVR_TYPE_DETECT: Missing extension_name for {extension_id}")
+            return 'user'
+        
+        name_lower = extension_name.lower()
+        
+        # Detect call queues by name patterns
+        queue_keywords = ['queue', 'support', 'sales', 'service', 'help', 'department', 'team', 'pso']
+        if any(keyword in name_lower for keyword in queue_keywords):
+            self.logger.info(f"IVR_TYPE_DETECT: Extension '{extension_name}' detected as call_queue (name pattern match)")
+            return 'call_queue'
+        
+        # Detect auto receptionist by name patterns  
+        ar_keywords = ['receptionist', 'menu', 'main', 'ivr', 'auto', 'greeting']
+        if any(keyword in name_lower for keyword in ar_keywords):
+            self.logger.info(f"IVR_TYPE_DETECT: Extension '{extension_name}' detected as auto_receptionist (name pattern match)")
+            return 'auto_receptionist'
+        
+        # Default to user for person names or unknown patterns
+        self.logger.info(f"IVR_TYPE_DETECT: Extension '{extension_name}' detected as user (default/name pattern)")
+        return 'user'
+
     def map_action_to_code(self, rc_action: str, target_type: str = 'user') -> int:
         """
         Map RingCentral action to Zoom action integer code.
@@ -276,3 +316,49 @@ class RingCentralToZoomIVRTransformer(BaseTransformer):
             self.logger.warning("ivr_details still present - should have been removed")
         
         return True
+    
+    @staticmethod
+    def resolve_rc_extension_to_zoom_id(job_group_id: int, rc_extension_id: str, extension_type: str) -> Optional[str]:
+        """
+        Resolve RingCentral extension ID to corresponding Zoom user/queue/AR ID via backend API.
+        
+        Args:
+            job_group_id: The job group ID to search within
+            rc_extension_id: The RingCentral extension ID to resolve
+            extension_type: Type of extension ('user', 'call_queue', 'auto_receptionist')
+            
+        Returns:
+            Zoom ID (user_id, queue_id, or AR ID) or None if not found
+        """
+        logger.info(f"IVR_RESOLVE: CALLED with job_group_id={job_group_id}, rc_extension_id={rc_extension_id}, extension_type={extension_type}")
+        try:
+            import requests
+            
+            # Call backend API to resolve extension mapping  
+            # Use backend service name since both containers are on same network
+            api_url = "http://backend:8030/api/resolve-extension/"
+            params = {
+                'job_group_id': job_group_id,
+                'rc_extension_id': rc_extension_id,
+                'extension_type': extension_type
+            }
+            
+            response = requests.get(api_url, params=params, timeout=10)
+            
+            if response.status_code == 200:
+                data = response.json()
+                zoom_id = data.get('zoom_id')
+                
+                if zoom_id:
+                    logger.info(f"IVR_RESOLVE: Mapped RC extension {rc_extension_id} → Zoom {extension_type} ID {zoom_id}")
+                    return str(zoom_id)
+                else:
+                    logger.warning(f"IVR_RESOLVE: No Zoom ID found for RC extension {rc_extension_id}")
+                    return None
+            else:
+                logger.error(f"IVR_RESOLVE: Backend API call failed: {response.status_code} {response.text}")
+                return None
+            
+        except Exception as e:
+            logger.error(f"IVR_RESOLVE: Error calling backend API to resolve RC extension {rc_extension_id}: {str(e)}")
+            return None
