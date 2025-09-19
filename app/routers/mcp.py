@@ -1,7 +1,7 @@
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import Union, Dict, Any
+from typing import Union, Dict, Any, List
 import logging
 
 from app.database.session import get_db
@@ -13,7 +13,7 @@ from app.schemas.mcp import (
     LoadRequest,
     StatusResponse
 )
-from app.database.models import MCPRequest as MCPRequestModel
+from app.database.models import MCPRequest as MCPRequestModel, SSOTFieldMapping
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -97,6 +97,11 @@ async def transform_data(
                 source_platform = params.get("source_format", "ringcentral") 
                 target_platform = params.get("target_format", "zoom")
                 raw_data = params.get("raw_data", {})
+            elif method == "transform_from_ssot":
+                job_type_code = params.get("job_type")
+                source_platform = "ssot"
+                target_platform = "zoom"
+                raw_data = params.get("ssot_data", {})
             else:
                 raise ValueError(f"Unsupported MCP method: {method}")
         else:
@@ -293,7 +298,8 @@ async def get_supported_platforms():
 
 # Data Migration Endpoints
 from pydantic import BaseModel
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
+from app.schemas.mcp import FieldMappingModel
 
 class JobTypeData(BaseModel):
     id: int
@@ -454,3 +460,103 @@ async def count_transformers(db: Session = Depends(get_db)):
     from app.database.models import TransformerConfig
     count = db.query(TransformerConfig).count()
     return {"count": count}
+
+
+# Field Mapping Endpoints
+@router.post("/field-mappings")
+async def create_field_mapping(mapping: FieldMappingModel, db: Session = Depends(get_db)):
+    """Create or update a field mapping."""
+    from app.services.field_mapping_service import FieldMappingService
+    
+    try:
+        result = FieldMappingService.create_or_update_field_mapping(mapping.dict(), db)
+        return result
+    except Exception as e:
+        logger.error(f"Error creating field mapping: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error creating field mapping: {str(e)}"
+        )
+
+
+@router.post("/field-mappings/bulk")
+async def bulk_create_field_mappings(mappings: List[FieldMappingModel], db: Session = Depends(get_db)):
+    """Create or update multiple field mappings in bulk."""
+    from app.services.field_mapping_service import FieldMappingService
+    
+    try:
+        result = FieldMappingService.bulk_create_field_mappings(
+            [mapping.dict() for mapping in mappings], db
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Error creating field mappings in bulk: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error creating field mappings in bulk: {str(e)}"
+        )
+
+
+@router.get("/field-mappings")
+async def get_field_mappings(
+    job_type_id: int,
+    source_platform: str = "ssot",
+    target_entity: str = None,
+    db: Session = Depends(get_db)
+):
+    """Get field mappings for a specific job type and source platform."""
+    from app.services.field_mapping_service import FieldMappingService
+    
+    try:
+        if target_entity:
+            # Get mappings for specific target entity
+            mappings = FieldMappingService.get_field_mappings(
+                job_type_id=job_type_id,
+                source_platform=source_platform,
+                target_entity=target_entity,
+                db=db
+            )
+        else:
+            # Get all mappings for the job type and source platform
+            query = db.query(SSOTFieldMapping).filter(
+                SSOTFieldMapping.job_type_id == job_type_id,
+                SSOTFieldMapping.source_platform == source_platform
+            )
+            mappings = [
+                {
+                    "id": mapping.id,
+                    "job_type_id": mapping.job_type_id,
+                    "source_platform": mapping.source_platform,
+                    "target_entity": mapping.target_entity,
+                    "ssot_field": mapping.ssot_field,
+                    "target_field": mapping.target_field,
+                    "transformation_rule": mapping.transformation_rule,
+                    "is_required": mapping.is_required,
+                    "description": mapping.description
+                }
+                for mapping in query.all()
+            ]
+            
+        return {"mappings": mappings, "count": len(mappings)}
+    except Exception as e:
+        logger.error(f"Error retrieving field mappings: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error retrieving field mappings: {str(e)}"
+        )
+
+
+@router.delete("/field-mappings/{mapping_id}")
+async def delete_field_mapping(mapping_id: int, db: Session = Depends(get_db)):
+    """Delete a field mapping."""
+    from app.services.field_mapping_service import FieldMappingService
+    
+    try:
+        result = FieldMappingService.delete_field_mapping(mapping_id, db)
+        return result
+    except Exception as e:
+        logger.error(f"Error deleting field mapping: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error deleting field mapping: {str(e)}"
+        )

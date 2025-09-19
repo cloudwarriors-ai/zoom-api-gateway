@@ -221,3 +221,30 @@ class LoadResult(BaseModel):
                 "target_resource": "meetings"
             }
         }
+
+
+class FieldMappingModel(BaseModel):
+    """Model for field mapping operations"""
+    id: Optional[int] = None
+    job_type_id: int
+    source_platform: str
+    target_entity: str
+    ssot_field: str
+    target_field: str
+    transformation_rule: Optional[str] = None
+    is_required: bool = False
+    description: Optional[str] = None
+    
+    class Config:
+        schema_extra = {
+            "example": {
+                "job_type_id": 39,
+                "source_platform": "ssot",
+                "target_entity": "user",
+                "ssot_field": "first_name",
+                "target_field": "user_info.first_name",
+                "transformation_rule": None,
+                "is_required": True,
+                "description": "User's first name"
+            }
+        }

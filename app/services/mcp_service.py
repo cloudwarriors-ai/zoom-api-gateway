@@ -7,7 +7,7 @@ requests and routing them to appropriate services.
 
 import logging
 import uuid
-from typing import Dict, Any, Optional, Union
+from typing import Dict, Any, Optional, Union, List
 from datetime import datetime
 
 from sqlalchemy.orm import Session

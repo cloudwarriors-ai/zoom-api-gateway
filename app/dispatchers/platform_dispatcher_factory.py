@@ -9,6 +9,8 @@ import logging
 from typing import Dict, Any, Optional, Type
 from app.core.exceptions import TransformationError
 from app.dispatchers.ringcentral_to_zoom_dispatcher import RingCentralToZoomDispatcher
+from app.dispatchers.ssot_to_zoom_dispatcher import SSOTToZoomDispatcher
+from app.dispatchers.dialpad_to_zoom_dispatcher import DialpadToZoomDispatcher
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +21,9 @@ class PlatformDispatcherFactory:
     # Registry of available dispatchers
     _dispatcher_registry = {
         ("ringcentral", "zoom"): RingCentralToZoomDispatcher,
+        ("ssot", "zoom"): SSOTToZoomDispatcher,
+        ("dialpad", "zoom"): DialpadToZoomDispatcher,
         # Future dispatchers can be added here:
-        # ("dialpad", "zoom"): DialpadToZoomDispatcher,
         # ("zoom", "ringcentral"): ZoomToRingCentralDispatcher,
     }
     

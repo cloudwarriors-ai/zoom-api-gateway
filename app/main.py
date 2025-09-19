@@ -71,6 +71,14 @@ async def startup_event():
     # Create database tables if they don't exist
     import app.database.models  # Import models to register them with SQLAlchemy
     app.database.models.Base.metadata.create_all(bind=engine)
+    
+    # Run database migrations
+    try:
+        from app.database.migrations.create_ssot_field_mappings import run_migration
+        run_migration()
+    except Exception as e:
+        logger.error(f"Error running migrations: {str(e)}")
+    
     logger.info("Service initialized successfully")
 
 # Shutdown event

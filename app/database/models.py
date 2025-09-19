@@ -1,9 +1,31 @@
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Text, JSON
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Text, JSON, func
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 
 Base = declarative_base()
+
+
+class SSOTFieldMapping(Base):
+    """
+    Defines mappings between SSOT fields and platform-specific fields for transformation.
+    
+    This table provides a configurable way to map fields from SSOT format to platform-specific
+    formats (e.g., Zoom) for different job types and entities.
+    """
+    __tablename__ = "ssot_field_mappings"
+    
+    id = Column(Integer, primary_key=True)
+    job_type_id = Column(Integer, nullable=False, index=True)
+    source_platform = Column(String(50), nullable=False)  # Always 'ssot' for this implementation
+    target_entity = Column(String(50), nullable=False)    # E.g., 'user', 'site', 'call_queue'
+    ssot_field = Column(String(100), nullable=False)      # Source field name in SSOT
+    target_field = Column(String(100), nullable=False)    # Target field name in Zoom
+    transformation_rule = Column(String(200))             # Optional transformation logic
+    is_required = Column(Boolean, default=False)          # Whether this field is required
+    description = Column(Text)                            # Description of the mapping
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
 class ZoomCredential(Base):
