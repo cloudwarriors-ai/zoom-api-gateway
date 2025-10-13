@@ -1,4 +1,4 @@
-# Zoom Platform Microservice
+# Zoom API Gateway
 
 ## Overview
 
@@ -6,7 +6,7 @@ This microservice is part of the CloudWarriors ETL system, focused specifically 
 
 ## Purpose
 
-The Zoom Platform Microservice serves as a dedicated connector between the CloudWarriors ETL system and Zoom's API services. Its primary responsibilities include:
+The Zoom API Gateway serves as a dedicated connector between the CloudWarriors ETL system and Zoom's API services. Its primary responsibilities include:
 
 - **Authentication**: Managing OAuth2 access tokens for Zoom API
 - **Data Extraction**: Retrieving meetings, recordings, users, and other data from Zoom
@@ -35,8 +35,8 @@ This service follows a modular, file-based architecture:
 
 ```bash
 # Clone the repository
-git clone https://github.com/cloudwarriors/zoom-platform-microservice.git
-cd zoom-platform-microservice
+git clone https://github.com/cloudwarriors-ai/zoom-api-gateway.git
+cd zoom-api-gateway
 
 # Create a virtual environment
 python -m venv venv
@@ -71,7 +71,7 @@ This microservice is designed to work with the Tesseract ETL system (`etl_prism_
 
 1. **Start the microservice:**
    ```bash
-   cd zoom-platform-microservice
+   cd zoom-api-gateway
    docker-compose up -d
    ```
 
