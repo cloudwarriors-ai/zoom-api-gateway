@@ -12,6 +12,7 @@ bcrypt==4.0.1
 httpx==0.24.1
 python-multipart==0.0.6
 tenacity==8.2.2
+redis==5.0.1
 asyncpg==0.28.0
 requests==2.31.0
 pyyaml==6.0.1

@@ -90,8 +90,10 @@ async def shutdown_event():
     logger.info("Service shutdown complete")
 
 # Import and include routers
+from app.routers.auth import router as auth_router
 from app.routers.mcp import router as mcp_router
 from app.routers.transform import router as transform_router
+app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
 app.include_router(mcp_router, prefix="/api/mcp", tags=["MCP"])
 app.include_router(transform_router, prefix="/api/transform", tags=["Transform"])
 

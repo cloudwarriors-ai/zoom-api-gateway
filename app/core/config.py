@@ -59,7 +59,24 @@ class Settings(BaseSettings):
     ZOOM_API_KEY: str = ""
     ZOOM_API_SECRET: str = ""
     ZOOM_API_BASE_URL: str = "https://api.zoom.us/v2"
-    
+
+    # Redis settings
+    REDIS_HOST: str = "tesseract-redis"
+    REDIS_PORT: int = 6379
+    REDIS_DB: int = 0
+    REDIS_URL: Optional[str] = None
+
+    @field_validator("REDIS_URL", mode="before")
+    @classmethod
+    def assemble_redis_connection(cls, v: Optional[str], info) -> str:
+        if v:
+            return v
+        values = info.data
+        return f"redis://{values.get('REDIS_HOST')}:{values.get('REDIS_PORT')}/{values.get('REDIS_DB')}"
+
+    # Session settings
+    SESSION_TTL: int = 300  # 5 minutes
+
     class Config:
         env_file = ".env"
         case_sensitive = True
