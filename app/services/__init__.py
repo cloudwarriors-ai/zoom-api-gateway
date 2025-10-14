@@ -7,5 +7,6 @@ including transformer services and MCP protocol handling.
 
 from app.services.transformer_service import TransformerService
 from app.services.mcp_service import MCPService
+from app.services import zoom_discovery
 
-__all__ = ["TransformerService", "MCPService"]
+__all__ = ["TransformerService", "MCPService", "zoom_discovery"]

@@ -7,6 +7,7 @@ import time
 from app.core.config import settings
 from app.database.connection import engine, SessionLocal
 from app.core.exceptions import CustomException
+from app.services import zoom_discovery
 
 # Configure logging
 logging.basicConfig(
@@ -71,14 +72,18 @@ async def startup_event():
     # Create database tables if they don't exist
     import app.database.models  # Import models to register them with SQLAlchemy
     app.database.models.Base.metadata.create_all(bind=engine)
-    
+
     # Run database migrations
     try:
         from app.database.migrations.create_ssot_field_mappings import run_migration
         run_migration()
     except Exception as e:
         logger.error(f"Error running migrations: {str(e)}")
-    
+
+    # Initialize Zoom endpoint discovery
+    logger.info("Initializing Zoom endpoint discovery...")
+    zoom_discovery.initialize_discovery()
+
     logger.info("Service initialized successfully")
 
 # Shutdown event
@@ -99,6 +104,78 @@ app.include_router(transform_router, prefix="/api/transform", tags=["Transform"]
 
 # Also mount the MCP router at /mcp for backward compatibility
 app.include_router(mcp_router, prefix="/mcp", tags=["MCP-Legacy"])
+
+# Discovery endpoint
+@app.get("/api/discovery/zoom-endpoints", tags=["Discovery"])
+async def get_zoom_endpoints(category: str = None, limit: int = None):
+    """
+    Get discovered Zoom API endpoints from OpenAPI specification.
+
+    Args:
+        category: Optional category filter
+        limit: Optional limit on number of results
+
+    Returns:
+        Dict containing endpoint metadata and list of endpoints
+    """
+    return zoom_discovery.get_endpoints_by_category(category=category, limit=limit)
+
+# Custom OpenAPI schema with discovered endpoints injected
+def custom_openapi():
+    """
+    Generate custom OpenAPI schema including discovered Zoom endpoints.
+    """
+    if app.openapi_schema:
+        return app.openapi_schema
+
+    from fastapi.openapi.utils import get_openapi
+
+    openapi_schema = get_openapi(
+        title=settings.API_TITLE,
+        version=settings.API_VERSION,
+        description=settings.API_DESCRIPTION,
+        routes=app.routes,
+    )
+
+    # Inject discovered Zoom endpoints into the OpenAPI schema
+    try:
+        discovered_data = zoom_discovery.fetch_zoom_endpoints()
+        endpoints = discovered_data.get("endpoints", [])
+
+        if endpoints:
+            # Add each discovered endpoint to the paths
+            if "paths" not in openapi_schema:
+                openapi_schema["paths"] = {}
+
+            for endpoint in endpoints:
+                path = endpoint.get("path")
+                method = endpoint.get("method", "GET").lower()
+
+                if path not in openapi_schema["paths"]:
+                    openapi_schema["paths"][path] = {}
+
+                openapi_schema["paths"][path][method] = {
+                    "summary": endpoint.get("summary", ""),
+                    "description": endpoint.get("description", ""),
+                    "operationId": endpoint.get("operationId", ""),
+                    "tags": endpoint.get("tags", ["Zoom API"]),
+                    "parameters": endpoint.get("parameters", []),
+                    "responses": {
+                        "200": {
+                            "description": "Successful response"
+                        }
+                    }
+                }
+
+            logger.info(f"✅ Injected {len(endpoints)} Zoom endpoints into OpenAPI schema")
+    except Exception as e:
+        logger.error(f"Failed to inject discovered endpoints into OpenAPI schema: {e}")
+
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+# Override the default OpenAPI schema
+app.openapi = custom_openapi
 
 # If this file is run directly, start the application with Uvicorn
 if __name__ == "__main__":
