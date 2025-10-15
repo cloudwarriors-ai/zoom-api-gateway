@@ -121,7 +121,13 @@ jobs:
           # Navigate to submodule and update to latest commit
           cd "$SUBMODULE_PATH"
           OLD_COMMIT=$(git rev-parse HEAD)
-          git fetch origin "$TARGET_BRANCH"
+
+          # Detect the submodule's default branch (could be master or main)
+          SUBMODULE_BRANCH=$(git remote show origin | grep 'HEAD branch' | cut -d' ' -f5)
+          echo "Submodule default branch: $SUBMODULE_BRANCH"
+
+          OLD_COMMIT=$(git rev-parse HEAD)
+          git fetch origin "$SUBMODULE_BRANCH"
           git checkout "$COMMIT_SHA"
           NEW_COMMIT=$(git rev-parse HEAD)
 
