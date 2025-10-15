@@ -126,7 +126,6 @@ jobs:
           SUBMODULE_BRANCH=$(git remote show origin | grep 'HEAD branch' | cut -d' ' -f5)
           echo "Submodule default branch: $SUBMODULE_BRANCH"
 
-          OLD_COMMIT=$(git rev-parse HEAD)
           git fetch origin "$SUBMODULE_BRANCH"
           git checkout "$COMMIT_SHA"
           NEW_COMMIT=$(git rev-parse HEAD)
@@ -157,11 +156,44 @@ jobs:
               -m "Automated by Tesseract Submodule Sync" \
               -m "Workflow: $RUN_URL"
 
-            # Push the changes
-            if git push origin "$TARGET_BRANCH"; then
-              echo "✅ Successfully updated $REPO_NAME submodule pointer in monorepo"
-              echo "Pushed commit to $MONOREPO_REPO"
-            else
+            # Push with retry logic to handle concurrent updates
+            MAX_RETRIES=3
+            PUSHED=false
+
+            for attempt in $(seq 1 $MAX_RETRIES); do
+              echo "Push attempt $attempt/$MAX_RETRIES..."
+
+              if git push origin "$TARGET_BRANCH"; then
+                echo "✅ Successfully updated $REPO_NAME submodule pointer in monorepo"
+                echo "Pushed commit to $MONOREPO_REPO"
+                PUSHED=true
+                break
+              else
+                if [ $attempt -lt $MAX_RETRIES ]; then
+                  echo "⚠️ Push failed (attempt $attempt/$MAX_RETRIES)"
+                  echo "Pulling latest changes and retrying..."
+
+                  # Pull with rebase to get latest changes
+                  git pull --rebase origin "$TARGET_BRANCH"
+
+                  # Re-update the submodule pointer in case another update came in
+                  cd "$SUBMODULE_PATH"
+                  git checkout "$COMMIT_SHA"
+                  cd "$TEMP_DIR/monorepo"
+                  git add "$SUBMODULE_PATH"
+
+                  # Amend commit to keep our changes
+                  git commit --amend --no-edit
+
+                  echo "Retrying push..."
+                else
+                  echo "::error::Failed to push after $MAX_RETRIES attempts"
+                  exit 1
+                fi
+              fi
+            done
+
+            if [ "$PUSHED" = false ]; then
               echo "::error::Failed to push changes to monorepo"
               exit 1
             fi
