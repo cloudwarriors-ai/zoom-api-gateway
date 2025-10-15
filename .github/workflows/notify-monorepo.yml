@@ -1,0 +1,186 @@
+name: Update Monorepo Submodule Pointer
+
+on:
+  push:
+    branches:
+      - master
+      - main
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: 'Target branch in monorepo (default: master)'
+        required: false
+        default: 'master'
+
+jobs:
+  notify-monorepo:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get repository name
+        id: repo-info
+        run: |
+          # Extract repository name from GitHub repository
+          REPO_NAME="${GITHUB_REPOSITORY##*/}"
+          echo "repo_name=$REPO_NAME" >> $GITHUB_OUTPUT
+          echo "Repository: $REPO_NAME"
+
+      - name: Generate GitHub App Token
+        id: generate-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Fetch submodule mapping
+        id: submodule-mapping
+        env:
+          GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}
+        run: |
+          # Fetch mapping file from monorepo using GitHub API
+          MONOREPO_REPO="${{ secrets.MONOREPO_REPO || 'cloudwarriors-ai/tesseract-platform' }}"
+
+          echo "Fetching submodule mapping from: $MONOREPO_REPO"
+
+          # Download mapping using GitHub API with authentication
+          if ! gh api "repos/$MONOREPO_REPO/contents/.github/submodule-mapping.json" \
+            --jq '.content' | base64 -d > mapping.json; then
+            echo "::error::Failed to fetch submodule mapping from monorepo"
+            exit 1
+          fi
+
+          # Extract submodule path for this repository
+          REPO_NAME="${{ steps.repo-info.outputs.repo_name }}"
+          SUBMODULE_PATH=$(jq -r ".submodules[\"$REPO_NAME\"].path // empty" mapping.json)
+
+          if [ -z "$SUBMODULE_PATH" ]; then
+            echo "::error::Repository $REPO_NAME not found in submodule mapping"
+            echo "::error::Available repositories:"
+            jq -r '.submodules | keys[]' mapping.json
+            exit 1
+          fi
+
+          echo "submodule_path=$SUBMODULE_PATH" >> $GITHUB_OUTPUT
+          echo "Mapped to submodule path: $SUBMODULE_PATH"
+
+      - name: Get commit information
+        id: commit-info
+        run: |
+          COMMIT_SHA="${{ github.sha }}"
+          COMMIT_MSG=$(git log -1 --pretty=format:"%s" $COMMIT_SHA)
+          COMMIT_AUTHOR=$(git log -1 --pretty=format:"%an" $COMMIT_SHA)
+
+          echo "commit_message=$COMMIT_MSG" >> $GITHUB_OUTPUT
+          echo "commit_author=$COMMIT_AUTHOR" >> $GITHUB_OUTPUT
+          echo "Commit: $COMMIT_SHA"
+          echo "Author: $COMMIT_AUTHOR"
+          echo "Message: $COMMIT_MSG"
+
+      - name: Update monorepo submodule pointer
+        env:
+          GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}
+        run: |
+          MONOREPO_REPO="${{ secrets.MONOREPO_REPO || 'cloudwarriors-ai/tesseract-platform' }}"
+          TARGET_BRANCH="${{ github.event.inputs.target_branch || 'master' }}"
+          SUBMODULE_PATH="${{ steps.submodule-mapping.outputs.submodule_path }}"
+          REPO_NAME="${{ steps.repo-info.outputs.repo_name }}"
+          COMMIT_SHA="${{ github.sha }}"
+          COMMIT_MSG="${{ steps.commit-info.outputs.commit_message }}"
+          COMMIT_AUTHOR="${{ steps.commit-info.outputs.commit_author }}"
+
+          echo "Updating monorepo: $MONOREPO_REPO"
+          echo "Submodule path: $SUBMODULE_PATH"
+          echo "Target branch: $TARGET_BRANCH"
+          echo "New commit: $COMMIT_SHA"
+
+          # Create temporary directory
+          TEMP_DIR=$(mktemp -d)
+          cd "$TEMP_DIR"
+
+          # Clone monorepo using GitHub App token
+          git clone --depth=1 --branch="$TARGET_BRANCH" \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${MONOREPO_REPO}.git" monorepo
+
+          cd monorepo
+
+          # Configure git
+          git config user.name "tesseract-submodule-sync[bot]"
+          git config user.email "tesseract-submodule-sync[bot]@users.noreply.github.com"
+
+          # Configure git to use token for all GitHub operations
+          git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+
+          # Initialize and update the specific submodule
+          git submodule update --init "$SUBMODULE_PATH"
+
+          # Navigate to submodule and update to latest commit
+          cd "$SUBMODULE_PATH"
+          OLD_COMMIT=$(git rev-parse HEAD)
+          git fetch origin "$TARGET_BRANCH"
+          git checkout "$COMMIT_SHA"
+          NEW_COMMIT=$(git rev-parse HEAD)
+
+          echo "Old commit: $OLD_COMMIT"
+          echo "New commit: $NEW_COMMIT"
+
+          # Return to monorepo root
+          cd "$TEMP_DIR/monorepo"
+
+          # Check if there are changes
+          if ! git diff --quiet "$SUBMODULE_PATH"; then
+            # Stage the submodule update
+            git add "$SUBMODULE_PATH"
+
+            # Create commit with detailed message
+            ACTOR="${{ github.actor }}"
+            RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+            git commit -m "Auto-update $REPO_NAME submodule pointer" \
+              -m "Updated to: $NEW_COMMIT" \
+              -m "Previous: $OLD_COMMIT" \
+              -m "" \
+              -m "Latest commit: $COMMIT_MSG" \
+              -m "Author: $COMMIT_AUTHOR" \
+              -m "Triggered by: $ACTOR" \
+              -m "" \
+              -m "Automated by Tesseract Submodule Sync" \
+              -m "Workflow: $RUN_URL"
+
+            # Push the changes
+            if git push origin "$TARGET_BRANCH"; then
+              echo "✅ Successfully updated $REPO_NAME submodule pointer in monorepo"
+              echo "Pushed commit to $MONOREPO_REPO"
+            else
+              echo "::error::Failed to push changes to monorepo"
+              exit 1
+            fi
+          else
+            echo "ℹ️ No changes detected - submodule already at commit $COMMIT_SHA"
+          fi
+
+          # Cleanup
+          cd /
+          rm -rf "$TEMP_DIR"
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Submodule Update" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Repository**: \`${{ steps.repo-info.outputs.repo_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Submodule Path**: \`${{ steps.submodule-mapping.outputs.submodule_path }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Author**: ${{ steps.commit-info.outputs.commit_author }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered By**: @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "✅ Monorepo submodule pointer updated successfully" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Failed to update monorepo submodule pointer - check logs above" >> $GITHUB_STEP_SUMMARY
+          fi
