@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, AliasChoices, AliasChoices
 from typing import Optional
 import logging
+import requests
+import base64
 
 from app.utils import get_redis_client, SessionManager, ProviderManager
 
@@ -24,14 +26,14 @@ pm = ProviderManager(
 
 # Pydantic models
 class ConnectRequest(BaseModel):
-    tenant: str = Field(..., min_length=1, max_length=100, description="Tenant identifier")
-    app: str = Field(..., min_length=1, max_length=100, description="Application identifier")
+    tenant: str = Field(..., min_length=1, max_length=100, description="Tenant identifier", validation_alias=AliasChoices("tenant", "tenant_name"))
+    app: str = Field(default="zoom", min_length=1, max_length=100, description="Application identifier")
 
     class Config:
         json_schema_extra = {
             "example": {
-                "tenant": "cloudwarriors",
-                "app": "zoom-gw"
+                "tenant_name": "cloudwarriors",
+                "app": "zoom"
             }
         }
 
@@ -124,6 +126,32 @@ class StatusResponse(BaseModel):
 
 
 # Auth endpoints
+
+def generate_zoom_oauth_token(client_id: str, client_secret: str, account_id: str) -> dict:
+    """Generate Zoom OAuth token using Server-to-Server OAuth."""
+    token_url = "https://zoom.us/oauth/token"
+    
+    credentials = f"{client_id}:{client_secret}"
+    auth_header = base64.b64encode(credentials.encode()).decode()
+    
+    headers = {
+        "Authorization": f"Basic {auth_header}",
+        "Content-Type": "application/x-www-form-urlencoded"
+    }
+    
+    data = {
+        "grant_type": "account_credentials",
+        "account_id": account_id
+    }
+    
+    try:
+        response = requests.post(token_url, headers=headers, data=data, timeout=10)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        logger.error(f"Failed to generate Zoom OAuth token: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate Zoom OAuth token: {str(e)}")
+
 @router.post("/connect",
     response_model=ConnectResponse,
     status_code=200,
@@ -141,16 +169,10 @@ async def auth_connect(body: ConnectRequest):
 
     Creates a new session with 5-minute TTL bundling system credentials
     and provider tokens for use by the Django API Gateway.
+    Supports both 'tenant' and 'tenant_name' for backward compatibility.
     """
     try:
-        system_creds = pm.get_system_credentials(body.tenant, body.app)
-        if not system_creds:
-            logger.warning(f"System credentials not found: tenant={body.tenant} app={body.app}")
-            raise HTTPException(
-                status_code=404,
-                detail=f"System credentials not found for tenant={body.tenant} app={body.app}"
-            )
-
+        # Use provider credentials directly (like Teams/RingCentral gateways)
         provider_data = pm.get_provider(body.tenant, 'zoom')
         if not provider_data:
             logger.warning(f"Provider 'zoom' not found for tenant={body.tenant}")
@@ -159,6 +181,20 @@ async def auth_connect(body: ConnectRequest):
                 detail=f"Provider 'zoom' not found for tenant={body.tenant}"
             )
 
+        # Generate Zoom OAuth token
+        client_id = provider_data.get('client_id') or provider_data.get('api_key')
+        client_secret = provider_data.get('client_secret') or provider_data.get('api_secret')
+        account_id = provider_data.get('account_id', '')
+        
+        if not all([client_id, client_secret, account_id]):
+            raise HTTPException(
+                status_code=400,
+                detail="Missing required Zoom credentials: client_id, client_secret, account_id"
+            )
+        
+        # Generate OAuth access token
+        token_response = generate_zoom_oauth_token(client_id, client_secret, account_id)
+        
         provider_tokens = {
             'api_key': provider_data.get('api_key'),
             'api_secret': provider_data.get('api_secret'),
@@ -171,7 +207,7 @@ async def auth_connect(body: ConnectRequest):
         session_data = sm.create_session(
             tenant=body.tenant,
             app=body.app,
-            system_creds=system_creds,
+            system_creds={},  # Empty since we use provider credentials directly
             provider_tokens=provider_tokens
         )
 
@@ -279,7 +315,7 @@ async def auth_status(
                 success=True,
                 data=StatusResponseData(
                     authenticated=has_api_key,
-                    tenant=tenant,
+                    tenant=body.tenant,
                     app=app,
                     session_id=session_id,
                     expires_at=expires_at
