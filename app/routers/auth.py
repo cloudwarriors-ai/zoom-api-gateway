@@ -196,11 +196,12 @@ async def auth_connect(body: ConnectRequest):
         token_response = generate_zoom_oauth_token(client_id, client_secret, account_id)
         
         provider_tokens = {
-            'access_token': token_response.get('access_token'),
-            'token_type': token_response.get('token_type', 'Bearer'),
-            'expires_in': token_response.get('expires_in', 3600),
-            'account_id': account_id,
-            'api_base_url': provider_data.get('api_base_url', 'https://api.zoom.us/v2')
+            'api_key': provider_data.get('api_key'),
+            'api_secret': provider_data.get('api_secret'),
+            'account_id': provider_data.get('account_id', ''),
+            'api_base_url': provider_data.get('api_base_url', 'https://api.zoom.us/v2'),
+            'client_id': provider_data.get('client_id'),
+            'client_secret': provider_data.get('client_secret'),
         }
 
         session_data = sm.create_session(
