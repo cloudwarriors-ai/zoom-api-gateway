@@ -163,7 +163,9 @@ async def auth_connect(body: ConnectRequest):
             'api_key': provider_data.get('api_key'),
             'api_secret': provider_data.get('api_secret'),
             'account_id': provider_data.get('account_id', ''),
-            'api_base_url': provider_data.get('api_base_url', 'https://api.zoom.us/v2')
+            'api_base_url': provider_data.get('api_base_url', 'https://api.zoom.us/v2'),
+            'client_id': provider_data.get('client_id'),
+            'client_secret': provider_data.get('client_secret'),
         }
 
         session_data = sm.create_session(
