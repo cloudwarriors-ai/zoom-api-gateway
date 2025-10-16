@@ -143,14 +143,7 @@ async def auth_connect(body: ConnectRequest):
     and provider tokens for use by the Django API Gateway.
     """
     try:
-        system_creds = pm.get_system_credentials(body.tenant, body.app)
-        if not system_creds:
-            logger.warning(f"System credentials not found: tenant={body.tenant} app={body.app}")
-            raise HTTPException(
-                status_code=404,
-                detail=f"System credentials not found for tenant={body.tenant} app={body.app}"
-            )
-
+        # Get provider credentials (contains everything we need)
         provider_data = pm.get_provider(body.tenant, 'zoom')
         if not provider_data:
             logger.warning(f"Provider 'zoom' not found for tenant={body.tenant}")
@@ -158,6 +151,14 @@ async def auth_connect(body: ConnectRequest):
                 status_code=404,
                 detail=f"Provider 'zoom' not found for tenant={body.tenant}"
             )
+
+        # Use provider credentials directly as system credentials
+        system_creds = {
+            'client_id': provider_data.get('client_id'),
+            'client_secret': provider_data.get('client_secret'),
+            'account_id': provider_data.get('account_id') or provider_data.get('account_key'),
+            'auth_type': provider_data.get('auth_type', 's2s_oauth')
+        }
 
         provider_tokens = {
             'api_key': provider_data.get('api_key'),
@@ -167,6 +168,8 @@ async def auth_connect(body: ConnectRequest):
             'client_id': provider_data.get('client_id'),
             'client_secret': provider_data.get('client_secret'),
         }
+
+        logger.info(f"Creating session for tenant={body.tenant} using provider credentials")
 
         session_data = sm.create_session(
             tenant=body.tenant,
