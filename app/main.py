@@ -62,7 +62,7 @@ async def custom_exception_handler(request: Request, exc: CustomException):
 @app.get("/health", tags=["Health"])
 async def health_check():
     """Health check endpoint to verify the service is running."""
-    return {"status": "healthy", "service": "zoom-platform-microservice"}
+    return {"status": "healthy", "service": "zoom-platform-gateway"}
 
 # Startup event
 @app.on_event("startup")
@@ -98,12 +98,15 @@ async def shutdown_event():
 from app.routers.auth import router as auth_router
 from app.routers.mcp import router as mcp_router
 from app.routers.transform import router as transform_router
+from app.routers.proxy import router as proxy_router
 app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
 app.include_router(mcp_router, prefix="/api/mcp", tags=["MCP"])
 app.include_router(transform_router, prefix="/api/transform", tags=["Transform"])
 
 # Also mount the MCP router at /mcp for backward compatibility
 app.include_router(mcp_router, prefix="/mcp", tags=["MCP-Legacy"])
+# Zoom API Proxy - must be last to catch all remaining paths
+app.include_router(proxy_router, tags=["Zoom API Proxy"])
 
 # Discovery endpoint
 @app.get("/api/discovery/zoom-endpoints", tags=["Discovery"])
