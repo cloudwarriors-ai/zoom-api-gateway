@@ -81,8 +81,9 @@ async def startup_event():
         logger.error(f"Error running migrations: {str(e)}")
 
     # Initialize Zoom endpoint discovery
-    logger.info("Initializing Zoom endpoint discovery...")
-    zoom_discovery.initialize_discovery()
+    # logger.info("Initializing Zoom endpoint discovery...")
+    # zoom_discovery.initialize_discovery()  # DISABLED: Using hardcoded endpoints only
+
 
     logger.info("Service initialized successfully")
 
