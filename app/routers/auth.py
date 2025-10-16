@@ -172,7 +172,7 @@ async def auth_connect(body: ConnectRequest):
     Supports both 'tenant' and 'tenant_name' for backward compatibility.
     """
     try:
-        # Use provider credentials directly (like Teams/RingCentral gateways)
+        # Get provider credentials (contains everything we need)
         provider_data = pm.get_provider(body.tenant, 'zoom')
         if not provider_data:
             logger.warning(f"Provider 'zoom' not found for tenant={body.tenant}")
@@ -180,6 +180,14 @@ async def auth_connect(body: ConnectRequest):
                 status_code=404,
                 detail=f"Provider 'zoom' not found for tenant={body.tenant}"
             )
+
+        # Use provider credentials directly as system credentials
+        system_creds = {
+            'client_id': provider_data.get('client_id'),
+            'client_secret': provider_data.get('client_secret'),
+            'account_id': provider_data.get('account_id') or provider_data.get('account_key'),
+            'auth_type': provider_data.get('auth_type', 's2s_oauth')
+        }
 
         # Generate Zoom OAuth token
         client_id = provider_data.get('client_id') or provider_data.get('api_key')
@@ -203,6 +211,8 @@ async def auth_connect(body: ConnectRequest):
             'client_id': provider_data.get('client_id'),
             'client_secret': provider_data.get('client_secret'),
         }
+
+        logger.info(f"Creating session for tenant={body.tenant} using provider credentials")
 
         session_data = sm.create_session(
             tenant=body.tenant,
