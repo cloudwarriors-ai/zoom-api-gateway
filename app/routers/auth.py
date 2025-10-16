@@ -172,14 +172,7 @@ async def auth_connect(body: ConnectRequest):
     Supports both 'tenant' and 'tenant_name' for backward compatibility.
     """
     try:
-        system_creds = pm.get_system_credentials(body.tenant, body.app)
-        if not system_creds:
-            logger.warning(f"System credentials not found: tenant={body.tenant} app={body.app}")
-            raise HTTPException(
-                status_code=404,
-                detail=f"System credentials not found for tenant={body.tenant} app={body.app}"
-            )
-
+        # Use provider credentials directly (like Teams/RingCentral gateways)
         provider_data = pm.get_provider(body.tenant, 'zoom')
         if not provider_data:
             logger.warning(f"Provider 'zoom' not found for tenant={body.tenant}")
@@ -213,7 +206,7 @@ async def auth_connect(body: ConnectRequest):
         session_data = sm.create_session(
             tenant=body.tenant,
             app=body.app,
-            system_creds=system_creds,
+            system_creds={},  # Empty since we use provider credentials directly
             provider_tokens=provider_tokens
         )
 
